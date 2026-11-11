@@ -3,7 +3,7 @@
   "lists": [
     {
       "id": "start",
-      "name": "Eerste playlist",
+      "name": "Uitwisseling concert 20 maart 2027",
       "note": "dit is een playlist voor het uitwisseling concert 20 maart 2027",
       "tracks": [
         {
@@ -13,6 +13,12 @@
           "yt": "https://youtu.be/TrxCmbJOZfM?si=MJyrAFh17CtGGfsd"
         }
       ]
+    },
+    {
+      "id": "j1r5w87",
+      "name": "Nieuwe playlist",
+      "note": "",
+      "tracks": []
     }
   ]
 }
