@@ -1,0 +1,11 @@
+{
+  "name": "Onze fanfare",
+  "lists": [
+    {
+      "id": "start",
+      "name": "Eerste playlist",
+      "note": "Dit is een voorbeeld. Open admin.html om je eigen nummers toe te voegen.",
+      "tracks": []
+    }
+  ]
+}

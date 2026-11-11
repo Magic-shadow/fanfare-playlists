@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>Fanfare Playlists</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"><div class="wrap"><p class="note">Laden…</p></div></div>
+<script>
+(function(){
+  var D=null,CUR=null,app=document.getElementById("app");
+
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function q(t){return encodeURIComponent(t)}
+  function cur(){
+    for(var i=0;i<D.lists.length;i++)if(D.lists[i].id===CUR)return D.lists[i];
+    return D.lists[0];
+  }
+
+  function render(){
+    var l=cur(),h='<div class="wrap">';
+    document.title=(l.name?l.name+" – ":"")+(D.name||"Fanfare Playlists");
+    h+='<div class="eyebrow">🎺 '+esc(D.name)+'</div><h1>'+esc(l.name)+'</h1>';
+    if(l.note)h+='<p class="note">'+esc(l.note)+'</p>';
+    if(D.lists.length>1){
+      h+='<div class="tabs">'+D.lists.map(function(x){
+        return'<button class="tab'+(x.id===l.id?' on':'')+'" data-tab="'+esc(x.id)+'">'+esc(x.name||"Zonder naam")+'</button>';
+      }).join("")+'</div>';
+    }
+    if(!l.tracks.length){
+      h+='<div class="card empty">Deze playlist is nog leeg.</div>';
+    }else{
+      var f=l.tracks[0],fl=f.sp||f.yt;
+      if(fl)h+='<a class="btn hero" href="'+esc(fl)+'" target="_blank" rel="noopener">▶ Begin bij nummer 1</a>';
+      h+='<div class="card list">'+l.tracks.map(function(t,i){
+        var main=t.sp||t.yt,k=t.sp?"sp":(t.yt?"yt":"none");
+        var search="https://www.youtube.com/results?search_query="+q(t.title);
+        var href=main||search,alt="";
+        if(t.sp&&t.yt)alt='<div class="alt">Geen Spotify? <a href="'+esc(t.yt)+'" target="_blank" rel="noopener">Open op YouTube</a></div>';
+        if(!main)alt='<div class="alt">Nog geen link – <a href="'+esc(search)+'" target="_blank" rel="noopener">zoek op YouTube</a></div>';
+        return'<div class="item"><div class="num">'+(i+1)+'</div><div class="info"><div class="t">'+esc(t.title)+'</div>'+alt+'</div>'
+          +'<a class="play '+k+'" href="'+esc(href)+'" target="_blank" rel="noopener" aria-label="Speel '+esc(t.title)+' af">'+(main?'▶':'🔍')+'</a></div>';
+      }).join("")+'</div>';
+      h+='<div class="legend"><span><i class="dot" style="background:var(--sp)"></i>Spotify</span><span><i class="dot" style="background:var(--yt)"></i>YouTube</span></div>';
+    }
+    h+='</div>';
+    app.innerHTML=h;
+  }
+
+  function fromHash(){
+    var id=decodeURIComponent((location.hash||"").slice(1));
+    CUR=id||D.lists[0].id;
+  }
+
+  document.addEventListener("click",function(e){
+    var b=e.target.closest("[data-tab]");if(!b)return;
+    CUR=b.getAttribute("data-tab");
+    try{history.replaceState(null,"","#"+encodeURIComponent(CUR))}catch(err){}
+    render();window.scrollTo(0,0);
+  });
+  window.addEventListener("hashchange",function(){if(D){fromHash();render()}});
+
+  fetch("playlists.json?t="+Date.now(),{cache:"no-store"})
+    .then(function(r){if(!r.ok)throw new Error(r.status);return r.json()})
+    .then(function(j){
+      D=j;
+      if(!D.lists||!D.lists.length)D.lists=[{id:"x",name:"Playlist",note:"",tracks:[]}];
+      fromHash();render();
+    })
+    .catch(function(){
+      app.innerHTML='<div class="wrap"><p class="err">De playlist kon niet worden geladen.<br>Probeer het later nog eens.</p></div>';
+    });
+})();
+</script>
+</body>
+</html>

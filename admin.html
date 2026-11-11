@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>Beheer – Fanfare Playlists</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"><div class="wrap"><p class="note">Laden…</p></div></div>
+<div class="toast" id="toast"></div>
+<script>
+(function(){
+  var CFG_KEY="fanfare-gh-config", DRAFT_KEY="fanfare-gh-draft";
+  var D=null, PUB="", SHA=null, CUR=null, dirty=false, busy=false;
+  var cfg={owner:"",repo:"",branch:"main",token:""};
+  var form={id:null,title:"",sp:"",yt:""}, confirmDel=false;
+  var app=document.getElementById("app");
+
+  /* ---------- helpers ---------- */
+  function uid(){return Math.random().toString(36).slice(2,9)}
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  function q(t){return encodeURIComponent(t)}
+  function cur(){for(var i=0;i<D.lists.length;i++)if(D.lists[i].id===CUR)return D.lists[i];CUR=D.lists[0].id;return D.lists[0]}
+  function kind(u){u=(u||"").toLowerCase();if(/spotify\.com|spotify\.link/.test(u))return"sp";if(/youtube\.com|youtu\.be/.test(u))return"yt";return null}
+  function clean(u){u=(u||"").trim();if(!u)return"";if(!/^https?:\/\//i.test(u))u="https://"+u;return u}
+  function toast(m){var t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove("show")},3200)}
+  function json(){return JSON.stringify(D,null,2)+"\n"}
+  function toB64(s){var b=new TextEncoder().encode(s),bin="";for(var i=0;i<b.length;i++)bin+=String.fromCharCode(b[i]);return btoa(bin)}
+  function fromB64(c){var bin=atob(c.replace(/\s/g,"")),b=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);return new TextDecoder().decode(b)}
+  function siteUrl(){return new URL("./",location.href).href}
+  function ready(){return cfg.owner&&cfg.repo&&cfg.token}
+  function apiUrl(){return"https://api.github.com/repos/"+q(cfg.owner)+"/"+q(cfg.repo)+"/contents/playlists.json"}
+  function apiHeaders(){return{"Authorization":"Bearer "+cfg.token,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"}}
+
+  function loadCfg(){
+    try{var c=JSON.parse(localStorage.getItem(CFG_KEY)||"null");if(c)for(var k in c)cfg[k]=c[k]}catch(e){}
+    if(!cfg.owner&&/\.github\.io$/i.test(location.hostname)){
+      cfg.owner=location.hostname.split(".")[0];
+      cfg.repo=location.pathname.split("/")[1]||cfg.repo;
+    }
+  }
+
+  function touch(){
+    dirty=json()!==PUB;
+    try{if(dirty)localStorage.setItem(DRAFT_KEY,json());else localStorage.removeItem(DRAFT_KEY)}catch(e){}
+    var s=document.getElementById("status");
+    if(s){s.textContent=dirty?"Niet-gepubliceerde wijzigingen":"Alles gepubliceerd";s.className="status"+(dirty?" dirty":"")}
+    var b=document.getElementById("pub");if(b)b.disabled=!dirty||busy;
+  }
+
+  /* ---------- laden ---------- */
+  function normalize(j){
+    if(!j.lists||!j.lists.length)j.lists=[{id:uid(),name:"Nieuwe playlist",note:"",tracks:[]}];
+    j.lists.forEach(function(l){l.id=l.id||uid();l.note=l.note||"";l.tracks=l.tracks||[];l.tracks.forEach(function(t){t.id=t.id||uid()})});
+    return j;
+  }
+  function loadRemote(){
+    var viaApi=ready()?
+      fetch(apiUrl()+"?ref="+q(cfg.branch||"main")+"&t="+Date.now(),{headers:apiHeaders(),cache:"no-store"})
+        .then(function(r){if(!r.ok)throw {status:r.status};return r.json()})
+        .then(function(o){SHA=o.sha;return JSON.parse(fromB64(o.content))})
+      :Promise.reject("skip");
+    return viaApi.catch(function(err){
+      if(err!=="skip")toast(err&&err.status===401?"Token ongeldig of verlopen":"Kon niet via GitHub laden, gebruik de gepubliceerde versie");
+      SHA=null;
+      return fetch("playlists.json?t="+Date.now(),{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error();return r.json()});
+    });
+  }
+  function init(){
+    loadCfg();
+    loadRemote().then(function(j){
+      D=normalize(j);PUB=json();
+      try{
+        var dr=localStorage.getItem(DRAFT_KEY);
+        if(dr&&dr!==PUB){D=normalize(JSON.parse(dr))}
+      }catch(e){}
+      CUR=D.lists[0].id;
+      render();
+    }).catch(function(){
+      app.innerHTML='<div class="wrap"><p class="err">playlists.json kon niet worden geladen.<br>Controleer of het bestand in je repository staat.</p></div>';
+    });
+  }
+
+  /* ---------- weergave ---------- */
+  function render(){
+    var l=cur(),n=l.tracks.length,h='<div class="wrap">';
+    h+='<div class="topbar"><span class="meta">Beheer</span><a class="btn sm" href="'+esc(siteUrl())+'" target="_blank" rel="noopener">Bekijk ledenpagina ↗</a></div>';
+
+    h+='<div class="eyebrow" style="margin-top:18px">Naam van de groep</div><div class="card" style="margin-top:8px"><input class="title-in" id="dname" value="'+esc(D.name)+'" placeholder="Bijv. Fanfare St. Cecilia"></div>';
+
+    h+='<div class="tabs">'+D.lists.map(function(x){return'<button class="tab'+(x.id===CUR?' on':'')+'" data-tab="'+esc(x.id)+'">'+esc(x.name||"Zonder naam")+'</button>'}).join("")+'<button class="tab add" id="newlist">+ Nieuw</button></div>';
+
+    h+='<div class="card"><input class="title-in" id="lname" value="'+esc(l.name)+'" placeholder="Naam van de playlist" aria-label="Naam van de playlist"><div class="meta">'+n+(n===1?' nummer':' nummers')+'</div>'
+      +'<label>Toelichting voor de leden (optioneel)</label><textarea class="f" id="lnote" placeholder="Bijv. Concert 14 maart – oefenen voor de repetitie van dinsdag">'+esc(l.note)+'</textarea></div>';
+
+    h+='<div class="card"><div style="font-weight:700;font-size:17px">'+(form.id?'Nummer aanpassen':'Nummer toevoegen')+'</div>'
+      +'<label>Titel (en evt. componist)</label><input class="f" id="ftitle" value="'+esc(form.title)+'" placeholder="Bijv. Highlights from Les Misérables" autocomplete="off">'
+      +'<div class="search"><a class="btn sp sm" id="sSp" target="_blank" rel="noopener" href="#">Zoek op Spotify</a><a class="btn yt sm" id="sYt" target="_blank" rel="noopener" href="#">Zoek op YouTube</a></div>'
+      +'<div class="hint">Zoek het nummer, kopieer de link via “Delen” en plak ’m hieronder.</div>'
+      +'<label>Spotify-link</label><input class="f" id="fsp" value="'+esc(form.sp)+'" placeholder="https://open.spotify.com/…" inputmode="url" autocomplete="off">'
+      +'<label>YouTube-link (als het niet op Spotify staat)</label><input class="f" id="fyt" value="'+esc(form.yt)+'" placeholder="https://youtu.be/…" inputmode="url" autocomplete="off">'
+      +'<div class="row" style="margin-top:16px"><button class="btn pri" id="add">'+(form.id?'Opslaan':'Toevoegen')+'</button>'+(form.id?'<button class="btn" id="cancel">Annuleer</button>':'')+'</div></div>';
+
+    if(!n)h+='<div class="card empty">Nog geen nummers.</div>';
+    else h+='<div class="card list">'+l.tracks.map(function(t,i){
+      var b='';
+      if(t.sp)b+='<a class="badge sp" href="'+esc(t.sp)+'" target="_blank" rel="noopener">Spotify</a>';
+      if(t.yt)b+='<a class="badge yt'+(t.sp?' off':'')+'" href="'+esc(t.yt)+'" target="_blank" rel="noopener">YouTube</a>';
+      if(!t.sp&&!t.yt)b='<span class="badge none">Geen link</span>';
+      return'<div class="item"><div class="num">'+(i+1)+'</div><div class="info"><div class="t">'+esc(t.title)+'</div><div class="badges">'+b+'</div></div>'
+        +'<div class="acts"><button class="ic" data-up="'+i+'" aria-label="Omhoog">▲</button><button class="ic" data-down="'+i+'" aria-label="Omlaag">▼</button></div>'
+        +'<div class="acts"><button class="ic" data-edit="'+i+'" aria-label="Aanpassen">✎</button><button class="ic" data-del="'+i+'" aria-label="Verwijder">✕</button></div></div>';
+    }).join("")+'</div>';
+
+    h+='<div class="card info-card"><b>Delen met de leden</b><br>Na het publiceren zien de leden de nieuwe versie op dezelfde link (dat kan 1 à 2 minuten duren).'
+      +'<div class="row" style="margin-top:12px"><button class="btn wa sm" id="wa">Deel deze playlist via WhatsApp</button><button class="btn sm" id="copy">Kopieer link</button></div>'
+      +'<div class="hint" id="linkhint">'+esc(shareLink())+'</div></div>';
+
+    h+='<details class="card"'+(ready()?'':' open')+'><summary>Verbinding met GitHub</summary>'
+      +'<p class="info-card" style="margin:10px 0 0">Nodig om te kunnen publiceren. Het token wordt alleen in deze browser bewaard.</p>'
+      +'<label>Gebruikersnaam of organisatie</label><input class="f" id="cowner" value="'+esc(cfg.owner)+'" autocomplete="off" autocapitalize="off">'
+      +'<label>Naam van de repository</label><input class="f" id="crepo" value="'+esc(cfg.repo)+'" autocomplete="off" autocapitalize="off">'
+      +'<label>Branch</label><input class="f" id="cbranch" value="'+esc(cfg.branch)+'" autocomplete="off" autocapitalize="off">'
+      +'<label>Token (fine-grained, alleen deze repo, Contents: Read and write)</label><input class="f" id="ctoken" type="password" value="'+esc(cfg.token)+'" autocomplete="off" placeholder="github_pat_…">'
+      +'<div class="row" style="margin-top:14px"><button class="btn pri sm" id="csave">Opslaan</button><button class="btn sm" id="cclear">Token wissen</button></div></details>';
+
+    h+='<div class="row" style="margin-top:6px"><button class="btn sm" id="dl">Download playlists.json</button><button class="btn sm danger" id="delList">'+(confirmDel?'Zeker weten? Tik nogmaals':'Verwijder deze playlist')+'</button></div>';
+    h+='</div>';
+    h+='<div class="bar"><div class="in"><span class="status" id="status"></span><button class="btn pri" id="pub">Publiceren</button></div></div>';
+    app.innerHTML=h;
+    updateSearch();touch();
+  }
+
+  function shareLink(){return siteUrl()+"#"+q(cur().id)}
+  function updateSearch(){
+    var t=document.getElementById("ftitle");if(!t)return;var v=t.value.trim();
+    document.getElementById("sSp").href="https://open.spotify.com/search/"+q(v);
+    document.getElementById("sYt").href="https://www.youtube.com/results?search_query="+q(v);
+  }
+  function copyText(txt){
+    function fb(){var ta=document.createElement("textarea");ta.value=txt;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();var ok=false;try{ok=document.execCommand("copy")}catch(e){}document.body.removeChild(ta);toast(ok?"Gekopieerd":"Kopiëren mislukt")}
+    try{navigator.clipboard.writeText(txt).then(function(){toast("Gekopieerd")},fb)}catch(e){fb()}
+  }
+
+  /* ---------- publiceren via GitHub API ---------- */
+  function publish(){
+    if(busy)return;
+    if(!ready()){toast("Vul eerst de GitHub-verbinding in");var d=document.querySelector("details.card");if(d){d.open=true;d.scrollIntoView({behavior:"smooth"})}return}
+    busy=true;var b=document.getElementById("pub");b.disabled=true;b.textContent="Bezig…";
+    var url=apiUrl(),branch=cfg.branch||"main";
+    fetch(url+"?ref="+q(branch)+"&t="+Date.now(),{headers:apiHeaders(),cache:"no-store"})
+      .then(function(r){if(!r.ok)throw {status:r.status};return r.json()})
+      .then(function(o){
+        if(SHA&&o.sha!==SHA)throw {status:"conflict"};
+        var body={message:"Playlists bijgewerkt",content:toB64(json()),sha:o.sha,branch:branch};
+        return fetch(url,{method:"PUT",headers:Object.assign({"Content-Type":"application/json"},apiHeaders()),body:JSON.stringify(body)});
+      })
+      .then(function(r){if(!r.ok)throw {status:r.status};return r.json()})
+      .then(function(res){
+        SHA=res.content.sha;PUB=json();
+        try{localStorage.removeItem(DRAFT_KEY)}catch(e){}
+        toast("Gepubliceerd – over 1 à 2 minuten zichtbaar voor de leden");
+      })
+      .catch(function(err){
+        var s=err&&err.status;
+        if(s==="conflict")toast("Er is intussen een nieuwere versie gepubliceerd. Kopieer je wijzigingen en herlaad de pagina.");
+        else if(s===401)toast("Token ongeldig of verlopen");
+        else if(s===403||s===404)toast("Geen toegang: controleer repo-naam en tokenrechten (Contents: Read and write)");
+        else if(s===409||s===422)toast("Versie-conflict, herlaad de pagina en probeer opnieuw");
+        else toast("Publiceren is niet gelukt, probeer het nog eens");
+      })
+      .then(function(){busy=false;var b2=document.getElementById("pub");if(b2){b2.textContent="Publiceren";touch()}});
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener("input",function(e){
+    if(!D)return;
+    var id=e.target.id,l=cur();
+    if(id==="dname"){D.name=e.target.value;touch()}
+    else if(id==="lname"){l.name=e.target.value;var t=document.querySelector(".tab.on");if(t)t.textContent=e.target.value||"Zonder naam";touch()}
+    else if(id==="lnote"){l.note=e.target.value;touch()}
+    else if(id==="ftitle"){form.title=e.target.value;updateSearch()}
+    else if(id==="fsp")form.sp=e.target.value;
+    else if(id==="fyt")form.yt=e.target.value;
+  });
+  document.addEventListener("click",function(e){
+    if(!D)return;
+    var el=e.target.closest("button");if(!el)return;
+    var d=el.dataset,l=cur();
+    if(d.tab){CUR=d.tab;confirmDel=false;form={id:null,title:"",sp:"",yt:""};render();return}
+    if(el.id==="newlist"){var nl={id:uid(),name:"Nieuwe playlist",note:"",tracks:[]};D.lists.push(nl);CUR=nl.id;render();var i=document.getElementById("lname");i.focus();i.select();return}
+    if(el.id==="add"){
+      var title=document.getElementById("ftitle").value.trim();
+      if(!title){toast("Vul een titel in");return}
+      var sp="",yt="";
+      [clean(document.getElementById("fsp").value),clean(document.getElementById("fyt").value)].forEach(function(u){var k=kind(u);if(k==="sp"&&!sp)sp=u;else if(k==="yt"&&!yt)yt=u;else if(u&&!sp&&!yt)sp=u});
+      if(form.id){l.tracks.forEach(function(t){if(t.id===form.id){t.title=title;t.sp=sp;t.yt=yt}})}
+      else l.tracks.push({id:uid(),title:title,sp:sp,yt:yt});
+      form={id:null,title:"",sp:"",yt:""};render();toast("Toegevoegd");return
+    }
+    if(el.id==="cancel"){form={id:null,title:"",sp:"",yt:""};render();return}
+    if(d.up!==undefined){var a=+d.up;if(a>0){var x=l.tracks.splice(a,1)[0];l.tracks.splice(a-1,0,x);render()}return}
+    if(d.down!==undefined){var b=+d.down;if(b<l.tracks.length-1){var y=l.tracks.splice(b,1)[0];l.tracks.splice(b+1,0,y);render()}return}
+    if(d.edit!==undefined){var t=l.tracks[+d.edit];form={id:t.id,title:t.title,sp:t.sp||"",yt:t.yt||""};render();window.scrollTo({top:0,behavior:"smooth"});return}
+    if(d.del!==undefined){l.tracks.splice(+d.del,1);render();return}
+    if(el.id==="delList"){
+      if(!confirmDel){confirmDel=true;render();return}
+      D.lists=D.lists.filter(function(z){return z.id!==CUR});
+      if(!D.lists.length)D.lists.push({id:uid(),name:"Nieuwe playlist",note:"",tracks:[]});
+      CUR=D.lists[0].id;confirmDel=false;render();toast("Playlist verwijderd");return
+    }
+    if(el.id==="pub"){publish();return}
+    if(el.id==="wa"){
+      var msg="🎺 "+(D.name||"Fanfare")+"\n"+(l.name||"Playlist")+" staat klaar. Tik op een nummer om het af te spelen:\n"+shareLink();
+      window.open("https://wa.me/?text="+q(msg),"_blank","noopener");return
+    }
+    if(el.id==="copy"){copyText(shareLink());return}
+    if(el.id==="dl"){
+      var a2=document.createElement("a");a2.href="data:application/json;charset=utf-8,"+q(json());a2.download="playlists.json";document.body.appendChild(a2);a2.click();document.body.removeChild(a2);return
+    }
+    if(el.id==="csave"){
+      cfg.owner=document.getElementById("cowner").value.trim();
+      cfg.repo=document.getElementById("crepo").value.trim();
+      cfg.branch=document.getElementById("cbranch").value.trim()||"main";
+      cfg.token=document.getElementById("ctoken").value.trim();
+      try{localStorage.setItem(CFG_KEY,JSON.stringify(cfg))}catch(err){}
+      toast("Opgeslagen");
+      if(ready()&&!dirty){loadRemote().then(function(j){D=normalize(j);PUB=json();CUR=D.lists[0].id;render()})}
+      return
+    }
+    if(el.id==="cclear"){cfg.token="";try{localStorage.setItem(CFG_KEY,JSON.stringify(cfg))}catch(err){}document.getElementById("ctoken").value="";toast("Token gewist");return}
+  });
+  window.addEventListener("beforeunload",function(e){if(dirty){e.preventDefault();e.returnValue=""}});
+
+  init();
+})();
+</script>
+</body>
+</html>
