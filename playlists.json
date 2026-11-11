@@ -1,11 +1,18 @@
 {
-  "name": "Onze fanfare",
+  "name": "Muziekvereniging de Notenkrakers",
   "lists": [
     {
       "id": "start",
       "name": "Eerste playlist",
-      "note": "Dit is een voorbeeld. Open admin.html om je eigen nummers toe te voegen.",
-      "tracks": []
+      "note": "dit is een playlist voor het uitwisseling concert 20 maart 2027",
+      "tracks": [
+        {
+          "id": "4jykyiy",
+          "title": "The great gate of Kiev",
+          "sp": "https://open.spotify.com/track/7sI4XoJFBrteBIEHm77Sv4?si=5846ccfac1584e69",
+          "yt": "https://youtu.be/TrxCmbJOZfM?si=MJyrAFh17CtGGfsd"
+        }
+      ]
     }
   ]
 }
